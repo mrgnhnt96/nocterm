@@ -778,8 +778,21 @@ class _TextFieldState extends State<TextField> {
 
   void _paste() {
     // Paste text from clipboard
-    final clipboardText = ClipboardManager.paste();
+    var clipboardText = ClipboardManager.paste();
     if (clipboardText != null && clipboardText.isNotEmpty) {
+      if (component.maxLines == 1) {
+        // Single-line field: replace all newlines/carriage returns with spaces
+        // This prevents accidentally submitting the form when pasting multi-line text
+        clipboardText = clipboardText.replaceAll(RegExp(r'[\r\n]+'), ' ');
+      } else {
+        // Multi-line field: preserve newlines but normalize to \n only
+        // Replace Windows-style \r\n and old Mac-style \r with Unix-style \n
+        // Note: Pasting via Ctrl+V processes the text as a single string insertion,
+        // so newlines won't trigger Enter key events or form submission
+        clipboardText = clipboardText.replaceAll(RegExp(r'\r\n'), '\n');
+        clipboardText = clipboardText.replaceAll(RegExp(r'\r'), '\n');
+      }
+
       _insertText(clipboardText);
     }
   }

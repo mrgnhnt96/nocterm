@@ -83,6 +83,12 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
     stdout.write('\x1B[?1003h'); // All motion tracking
     stdout.write('\x1B[?1006h'); // SGR mouse mode
 
+    // Enable bracketed paste mode
+    // ESC [ ? 2004 h - Enables bracketed paste mode
+    // When enabled, pasted text is wrapped in ESC[200~ ... ESC[201~
+    // This allows applications to distinguish pasted text from typed text
+    stdout.write('\x1B[?2004h'); // Bracketed paste mode
+
     // Store initial size
     _lastKnownSize = terminal.size;
 
@@ -133,6 +139,17 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
 
           // Route the mouse event through the component tree
           _routeMouseEvent(event);
+        } else if (inputEvent is PasteInputEvent) {
+          // Handle bracketed paste: copy to clipboard then send Ctrl+V
+          ClipboardManager.copy(inputEvent.text);
+
+          // Generate a Ctrl+V keyboard event to trigger the paste
+          final pasteEvent = KeyboardEvent(
+            logicalKey: LogicalKey.keyV,
+            modifiers: const ModifierKeys(ctrl: true),
+          );
+          _keyboardEventController.add(pasteEvent);
+          _routeKeyboardEvent(pasteEvent);
         }
       }
 
@@ -483,14 +500,15 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
 
     // Try to cleanup terminal, but handle errors gracefully
     try {
-      // IMPORTANT: Disable mouse tracking BEFORE leaving alternate screen
+      // IMPORTANT: Disable mouse tracking and bracketed paste BEFORE leaving alternate screen
       // This ensures the terminal properly processes the disable commands
       stdout.write('\x1B[?1003l'); // Disable all motion tracking FIRST
       stdout.write('\x1B[?1006l'); // Disable SGR mouse mode
       stdout.write('\x1B[?1002l'); // Disable button event tracking
       stdout.write('\x1B[?1000l'); // Disable basic mouse tracking LAST
+      stdout.write('\x1B[?2004l'); // Disable bracketed paste mode
 
-      // Flush to ensure mouse disable commands are sent immediately
+      // Flush to ensure disable commands are sent immediately
       stdout.flush();
 
       // Restore terminal (this includes leaving alternate screen)

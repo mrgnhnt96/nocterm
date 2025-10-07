@@ -51,7 +51,23 @@ class InputParser {
 
     final first = _buffer[0];
 
-    // Check for mouse sequences first
+    // Check for bracketed paste sequences first (ESC[200~ and ESC[201~)
+    if (first == 0x1B && _buffer.length >= 2) {
+      if (_buffer[1] == 0x5B && _buffer.length >= 6) {
+        // Check for ESC[200~ (paste start)
+        if (_buffer[2] == 0x32 && _buffer[3] == 0x30 && _buffer[4] == 0x30 && _buffer[5] == 0x7E) {
+          // Found paste start marker, look for paste end marker (ESC[201~)
+          final result = _parseBracketedPaste();
+          if (result != null) {
+            return result;
+          }
+          // If we don't find the end marker yet, wait for more data
+          return null;
+        }
+      }
+    }
+
+    // Check for mouse sequences
     if (first == 0x1B && _buffer.length >= 2) {
       // Check for mouse escape sequences
       if (_buffer[1] == 0x5B && _buffer.length >= 3) {
@@ -535,6 +551,38 @@ class InputParser {
     }
 
     return null;
+  }
+
+  /// Parse bracketed paste content (ESC[200~ ... ESC[201~)
+  (InputEvent, int)? _parseBracketedPaste() {
+    // We know buffer starts with ESC[200~ (6 bytes)
+    // Look for the end marker ESC[201~
+    int endMarkerStart = -1;
+    for (int i = 6; i < _buffer.length - 5; i++) {
+      if (_buffer[i] == 0x1B &&
+          _buffer[i + 1] == 0x5B &&
+          _buffer[i + 2] == 0x32 &&
+          _buffer[i + 3] == 0x30 &&
+          _buffer[i + 4] == 0x31 &&
+          _buffer[i + 5] == 0x7E) {
+        endMarkerStart = i;
+        break;
+      }
+    }
+
+    if (endMarkerStart == -1) {
+      // Haven't received the end marker yet, wait for more data
+      return null;
+    }
+
+    // Extract the pasted text (between start and end markers)
+    final pasteBytes = _buffer.sublist(6, endMarkerStart);
+    final pasteText = utf8.decode(pasteBytes, allowMalformed: true);
+
+    // Total bytes consumed: start marker (6) + paste content + end marker (6)
+    final totalBytes = endMarkerStart + 6;
+
+    return (PasteInputEvent(pasteText), totalBytes);
   }
 
   /// Clear any buffered input

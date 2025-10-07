@@ -13,9 +13,16 @@ class KeyboardInputEvent extends InputEvent {
   const KeyboardInputEvent(this.event);
 }
 
-/// Mouse input event  
+/// Mouse input event
 class MouseInputEvent extends InputEvent {
   final MouseEvent event;
-  
+
   const MouseInputEvent(this.event);
+}
+
+/// Paste input event (from bracketed paste mode)
+class PasteInputEvent extends InputEvent {
+  final String text;
+
+  const PasteInputEvent(this.text);
 }
