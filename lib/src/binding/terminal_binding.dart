@@ -130,8 +130,8 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
           // Route the event through the component tree
           _routeKeyboardEvent(event);
 
-          // Note: Ctrl+C is handled by SIGINT signal handler, not here
-          // This prevents double-handling and ensures proper cleanup
+          // Note: Ctrl+C (SIGINT) is routed through the event system first,
+          // allowing components to intercept it. Falls back to shutdown if unhandled.
         } else if (inputEvent is MouseInputEvent) {
           final event = inputEvent.event;
           // Add to mouse event stream
@@ -192,12 +192,24 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
     if (Platform.isLinux || Platform.isMacOS) {
       // Handle SIGINT (Ctrl+C)
       _sigintSubscription = ProcessSignal.sigint.watch().listen((_) {
-        // Perform cleanup synchronously
-        _performImmediateShutdown();
+        // Create a synthetic Ctrl+C keyboard event
+        final ctrlCEvent = KeyboardEvent(
+          logicalKey: LogicalKey.keyC,
+          character: null,
+          modifiers: const ModifierKeys(ctrl: true),
+        );
 
-        // Exit immediately without async delays
-        // This ensures single Ctrl+C quits the app
-        exit(0);
+        // Add to keyboard event stream for monitoring
+        _keyboardEventController.add(ctrlCEvent);
+
+        // Route through component tree - components can intercept by returning true
+        final handled = _routeKeyboardEvent(ctrlCEvent);
+
+        // If no component handled it, perform default shutdown
+        if (!handled) {
+          _performImmediateShutdown();
+          exit(0);
+        }
       });
 
       // Handle SIGTERM (kill command)
@@ -295,12 +307,13 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
   }
 
   /// Route a keyboard event through the component tree
-  void _routeKeyboardEvent(KeyboardEvent event) {
-    if (rootElement == null) return;
+  /// Returns true if the event was handled by a component
+  bool _routeKeyboardEvent(KeyboardEvent event) {
+    if (rootElement == null) return false;
 
     // Try to dispatch the event to the root element
     // The event will bubble through focused components
-    _dispatchKeyToElement(rootElement!, event);
+    return _dispatchKeyToElement(rootElement!, event);
   }
 
   /// Route a mouse event through the component tree
