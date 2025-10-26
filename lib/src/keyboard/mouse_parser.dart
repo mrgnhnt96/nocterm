@@ -5,8 +5,10 @@ class MouseParser {
   /// Parse SGR mouse sequence (ESC [ < button ; x ; y M/m)
   /// Returns null if not a valid mouse sequence
   static MouseEvent? parseSGR(List<int> buffer) {
-    if (buffer.length < 9) return null; // Minimum: ESC [ < 0 ; 1 ; 1 M
-    
+    if (buffer.length < 9) {
+      return null;
+    }
+
     // Check for ESC [ <
     if (buffer[0] != 0x1B || buffer[1] != 0x5B || buffer[2] != 0x3C) {
       return null;
@@ -49,39 +51,47 @@ class MouseParser {
       } else if (buttonCode == 65) {
         button = MouseButton.wheelDown;
       } else {
-        // For motion events (bit 5 set) with no button (bits 0-1 = 3), ignore
+        // Handle motion and button events
         final baseButton = buttonCode & 0x3;
         final isMotion = (buttonCode & 0x20) != 0; // Bit 5
-        
+
         if (isMotion && baseButton == 3) {
-          // Mouse motion without button press - ignore for now
-          return null;
-        }
-        
-        // Regular button events
-        switch (baseButton) {
-          case 0:
-            button = MouseButton.left;
-            break;
-          case 1:
-            button = MouseButton.middle;
-            break;
-          case 2:
-            button = MouseButton.right;
-            break;
-          case 3:
-            // Release or no button
-            return null;
+          // Mouse motion without button press - use left button as placeholder
+          // and mark as not pressed to indicate hover/move
+          button = MouseButton.left;
+        } else {
+          // Regular button events
+          switch (baseButton) {
+            case 0:
+              button = MouseButton.left;
+              break;
+            case 1:
+              button = MouseButton.middle;
+              break;
+            case 2:
+              button = MouseButton.right;
+              break;
+            case 3:
+              // Release or no button - use left as placeholder
+              button = MouseButton.left;
+              break;
+          }
         }
       }
-      
-      if (button == null) return null;
-      
+
+      if (button == null) {
+        return null;
+      }
+
+      // Determine if this is a motion event
+      final isMotionEvent = (buttonCode & 0x20) != 0; // Bit 5 indicates motion
+
       return MouseEvent(
         button: button,
         x: x,
         y: y,
         pressed: pressed,
+        isMotion: isMotionEvent,
       );
     } catch (e) {
       return null;
