@@ -1,7 +1,7 @@
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm/nocterm_test.dart';
 import 'package:test/test.dart';
-import '../examples/gesture_demo.dart';
+import '../example/gesture_demo.dart';
 
 void main() {
   group('Gesture Demo', () {
