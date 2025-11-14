@@ -8,6 +8,18 @@ abstract class NoctermBinding {
   NoctermBinding() {
     assert(_instance == null, 'Only one TuiBinding instance allowed');
     _instance = this;
+    initializeBinding();
+  }
+
+  /// Initialize the binding.
+  ///
+  /// Subclasses and mixins should override this to perform their
+  /// initialization in the constructor. Implementations must call
+  /// super.initializeBinding().
+  @protected
+  @mustCallSuper
+  void initializeBinding() {
+    // Base implementation does nothing
   }
 
   /// Clear the singleton instance - only for testing

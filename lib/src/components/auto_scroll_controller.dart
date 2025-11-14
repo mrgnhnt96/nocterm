@@ -46,7 +46,7 @@ class AutoScrollController extends ScrollController {
     if (_isAutoScrollEnabled && wasNearBottom && contentGrew) {
       // Schedule scroll to end after the frame
       try {
-        TerminalBinding.instance.addPostFrameCallback(() {
+        TerminalBinding.instance.addPostFrameCallback((_) {
           if (isReversed) {
             scrollToStart(); // In reverse mode, scroll to start (offset 0)
           } else {

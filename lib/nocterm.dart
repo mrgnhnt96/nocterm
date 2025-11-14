@@ -13,6 +13,8 @@ export 'src/size.dart';
 export 'src/rectangle.dart';
 export 'src/test/nocterm_test_binding.dart';
 export 'src/binding/terminal_binding.dart';
+export 'src/binding/scheduler_binding.dart';
+export 'src/binding/scheduler_phase.dart';
 export 'src/components/basic.dart';
 export 'src/components/focusable.dart';
 export 'src/components/focus_scope.dart';
@@ -57,3 +59,6 @@ export 'src/utils/clipboard.dart';
 export 'src/utils/log_server.dart';
 export 'src/utils/logger.dart';
 export 'src/utils/nocterm_paths.dart';
+
+// Widgets
+export 'src/widgets/nocterm_app.dart';

@@ -5,26 +5,19 @@ import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm/src/framework/terminal_canvas.dart';
 import 'package:nocterm/src/navigation/render_theater.dart';
-import 'package:nocterm/src/rectangle.dart';
 import 'package:nocterm/src/rendering/scrollable_render_object.dart';
 
 import '../backend/terminal.dart' as term;
 import '../buffer.dart' as buf;
 import '../keyboard/input_parser.dart';
 import '../keyboard/input_event.dart';
-import '../keyboard/mouse_event.dart';
-import '../components/block_focus.dart';
 import '../rendering/mouse_tracker.dart';
 import '../rendering/mouse_hit_test.dart';
-import '../utils/log_server.dart';
-import '../utils/logger.dart';
-import '../utils/nocterm_paths.dart';
 import 'hot_reload_mixin.dart';
 
 /// Terminal UI binding that handles terminal input/output and event loop
-class TerminalBinding extends NoctermBinding with HotReloadBinding {
-  TerminalBinding(this.terminal, {Stream<List<int>>? inputStream})
-      : _customInputStream = inputStream {
+class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBinding {
+  TerminalBinding(this.terminal, {Stream<List<int>>? inputStream}) : _customInputStream = inputStream {
     _instance = this;
     _initializePipelineOwner();
   }
@@ -40,7 +33,6 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
   // Expose buildOwner from the base class
   BuildOwner get buildOwner => super.buildOwner;
 
-  Timer? _frameTimer;
   bool _shouldExit = false;
   final _inputController = StreamController<String>.broadcast();
   final _keyboardEventController = StreamController<KeyboardEvent>.broadcast();
@@ -51,9 +43,6 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
   // Event-driven loop support
   final _eventLoopController = StreamController<void>.broadcast();
   Stream<void> get _eventLoopStream => _eventLoopController.stream;
-
-  // Post-frame callbacks
-  final List<VoidCallback> _postFrameCallbacks = [];
   StreamSubscription? _inputSubscription;
   StreamSubscription? _sigwinchSubscription;
   StreamSubscription? _sigintSubscription;
@@ -173,11 +162,11 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
         }
       }
 
-      // After processing ALL events in the buffer, draw the frame once
-      // This ensures that pasted text (multiple characters) gets processed
-      // completely before rendering, rather than blocking after each character
+      // After processing ALL events in the buffer, schedule a frame if needed
+      // The scheduler will batch all state changes and render once
+      // This ensures rapid events (scroll, paste) don't trigger excessive renders
       if (buildOwner.hasDirtyElements) {
-        drawFrame();
+        scheduleFrame();
       }
 
       // Also add raw string for backwards compatibility
@@ -198,9 +187,7 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
 
     while (i < bytes.length) {
       // Check for OSC 9999 sequence: ESC ] 9999 ; <cols> ; <rows> BEL
-      if (i + 6 < bytes.length &&
-          bytes[i] == 0x1b &&
-          bytes[i + 1] == 0x5d) {
+      if (i + 6 < bytes.length && bytes[i] == 0x1b && bytes[i + 1] == 0x5d) {
         // Found ESC ]
         // Look for the BEL terminator
         int end = i + 2;
@@ -306,8 +293,7 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
     if (_shouldExit) return;
     _shouldExit = true;
 
-    // Cancel all timers and subscriptions immediately
-    _frameTimer?.cancel();
+    // Cancel all subscriptions immediately
     _inputSubscription?.cancel();
     _sigwinchSubscription?.cancel();
     _sigintSubscription?.cancel();
@@ -574,7 +560,6 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
     if (_shouldExit) return;
 
     _shouldExit = true;
-    _frameTimer?.cancel();
     _inputSubscription?.cancel();
     _sigwinchSubscription?.cancel();
 
@@ -654,28 +639,40 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
   }
 
   @override
-  void scheduleFrame() {
-    // Cancel any existing timer
-    _frameTimer?.cancel();
+  void scheduleFrameImpl() {
+    // Override scheduler's frame implementation to also wake the event loop
+    Timer.run(() {
+      final now = DateTime.now();
+      final timeStamp = Duration(microseconds: now.microsecondsSinceEpoch);
+      handleBeginFrame(timeStamp);
 
-    // Schedule frame to be drawn on next microtask
-    // This batches updates that happen in the same event loop iteration
-    _frameTimer = Timer(Duration.zero, () {
-      drawFrame();
-      _frameTimer = null;
+      // Wake up the event loop after scheduling the frame
+      if (!_eventLoopController.isClosed) {
+        _eventLoopController.add(null);
+      }
     });
-
-    // Wake up the event loop
-    if (!_eventLoopController.isClosed) {
-      _eventLoopController.add(null);
-    }
   }
 
   @override
-  void drawFrame() {
+  void handleDrawFrame() {
+    if (rootElement == null) {
+      super.handleDrawFrame(); // Let scheduler handle phase transitions
+      return;
+    }
+
+    // Execute the persistent callbacks (build phase happens via BuildOwner)
+    // The SchedulerBinding's handleDrawFrame will:
+    // 1. Call persistent callbacks (including our _drawFrameCallback)
+    // 2. Run post-frame callbacks
+    // 3. Return to idle phase
+    super.handleDrawFrame();
+  }
+
+  /// The actual frame drawing logic, registered as a persistent callback.
+  void _drawFrameCallback(Duration timeStamp) {
     if (rootElement == null) return;
 
-    // Build phase
+    // Build phase - handled by BuildOwner via persistent callback
     super.drawFrame();
 
     // Get current terminal size (may have been updated by resize event)
@@ -749,23 +746,13 @@ class TerminalBinding extends NoctermBinding with HotReloadBinding {
       }
     }
     terminal.flush();
-
-    // Execute post-frame callbacks
-    final callbacks = List<VoidCallback>.from(_postFrameCallbacks);
-    _postFrameCallbacks.clear();
-    for (final callback in callbacks) {
-      callback();
-    }
   }
 
-  /// Schedules a callback to be executed after the next frame is drawn.
-  ///
-  /// This is useful for performing actions that depend on the layout being
-  /// complete, such as scrolling to a specific position after adding content.
-  void addPostFrameCallback(VoidCallback callback) {
-    _postFrameCallbacks.add(callback);
-    // Schedule a frame if one isn't already scheduled
-    scheduleFrame();
+  @override
+  void initializeBinding() {
+    super.initializeBinding();
+    // Register the terminal drawing as a persistent callback
+    addPersistentFrameCallback(_drawFrameCallback);
   }
 
   /// Request application shutdown with proper cleanup

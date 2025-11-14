@@ -131,6 +131,39 @@ class Terminal {
     // Add to write buffer - will be flushed with next frame
     write(sequence);
   }
+
+  /// Set the terminal window title using OSC 2 sequence.
+  /// Uses BEL terminator for maximum compatibility.
+  ///
+  /// Example: `setWindowTitle('My App')`
+  void setWindowTitle(String title) {
+    // OSC 2 ; <title> BEL
+    const osc = '\x1b]';
+    const bel = '\x07';
+    write('${osc}2;$title$bel');
+  }
+
+  /// Set the terminal icon name using OSC 1 sequence.
+  /// Uses BEL terminator for maximum compatibility.
+  ///
+  /// Example: `setIconName('MyApp')`
+  void setIconName(String name) {
+    // OSC 1 ; <name> BEL
+    const osc = '\x1b]';
+    const bel = '\x07';
+    write('${osc}1;$name$bel');
+  }
+
+  /// Set both terminal window title and icon name using OSC 0 sequence.
+  /// Uses BEL terminator for maximum compatibility.
+  ///
+  /// Example: `setTitleAndIcon('My App')`
+  void setTitleAndIcon(String text) {
+    // OSC 0 ; <text> BEL
+    const osc = '\x1b]';
+    const bel = '\x07';
+    write('${osc}0;$text$bel');
+  }
 }
 
 /// Terminal that writes output to a socket instead of stdout.

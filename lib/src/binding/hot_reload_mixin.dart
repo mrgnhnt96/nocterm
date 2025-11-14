@@ -30,13 +30,10 @@ mixin HotReloadBinding on NoctermBinding {
     }
 
     try {
-      print('[HotReload] Initializing hot reload support...');
-      
       // Get and print VM service info
       try {
         final info = await Service.getInfo();
         if (info.serverUri != null) {
-          print('[HotReload] VM Service URL: ${info.serverUri}');
           if (info.serverWebSocketUri != null) {
             print('[HotReload] DevTools URL: ${info.serverUri}devtools/?uri=${info.serverWebSocketUri}');
           }
@@ -64,7 +61,6 @@ mixin HotReloadBinding on NoctermBinding {
           _isReloading = false;
 
           if (ctx.result == HotReloadResult.Succeeded) {
-            print('[HotReload] Hot reload successful');
             // Trigger reassemble after successful reload
             _performReassembleAfterReload();
           } else if (ctx.result == HotReloadResult.Failed) {
@@ -74,9 +70,6 @@ mixin HotReloadBinding on NoctermBinding {
           }
         },
       );
-
-      print('[HotReload] Hot reload initialized successfully');
-      print('[HotReload] Watching for changes in lib/, bin/, and test/ directories...');
     } catch (e, stack) {
       print('[HotReload] Failed to initialize hot reload: $e');
       print('[HotReload] Stack trace: $stack');
@@ -103,7 +96,6 @@ mixin HotReloadBinding on NoctermBinding {
     _reloadSubscription?.cancel();
     _reloader?.stop();
     _reloader = null;
-    print('[HotReload] Hot reload stopped');
   }
 
   /// Override shutdown to cleanup hot reload

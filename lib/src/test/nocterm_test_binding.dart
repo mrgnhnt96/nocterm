@@ -13,7 +13,7 @@ import '../buffer.dart' as buf;
 
 /// Test binding for TUI applications that provides controlled frame rendering
 /// and state inspection capabilities for testing.
-class NoctermTestBinding extends NoctermBinding {
+class NoctermTestBinding extends NoctermBinding with SchedulerBinding {
   NoctermTestBinding({
     term.Terminal? terminal,
     this.size = const Size(80, 24),
@@ -55,9 +55,6 @@ class NoctermTestBinding extends NoctermBinding {
   int _frameCount = 0;
   int get frameCount => _frameCount;
 
-  /// Whether there are pending frame callbacks
-  bool _hasScheduledFrame = false;
-
   /// Pump a single frame
   Future<void> pump([Duration? duration]) async {
     if (duration != null) {
@@ -76,8 +73,9 @@ class NoctermTestBinding extends NoctermBinding {
       _routeMouseEvent(event);
     }
 
-    // Draw the frame
-    drawFrame();
+    // Execute a frame using the scheduler
+    final timestamp = Duration(microseconds: DateTime.now().microsecondsSinceEpoch);
+    handleBeginFrame(timestamp);
     _frameCount++;
 
     // Allow async operations to complete
@@ -95,7 +93,7 @@ class NoctermTestBinding extends NoctermBinding {
     while (hasChanges && iterations < maxIterations) {
       final previousFrameCount = _frameCount;
       await pump(duration);
-      hasChanges = _frameCount > previousFrameCount || _hasScheduledFrame;
+      hasChanges = _frameCount > previousFrameCount || hasScheduledFrame;
       iterations++;
     }
 
@@ -131,16 +129,17 @@ class NoctermTestBinding extends NoctermBinding {
   }
 
   @override
-  void scheduleFrame() {
-    _hasScheduledFrame = true;
-    // Don't actually schedule - wait for pump() to be called
+  void scheduleFrameImpl() {
+    // Override to prevent actual async scheduling in tests
+    // The _hasScheduledFrame flag in SchedulerBinding will be set by scheduleFrame()
+    // Tests manually call pump() to render frames
   }
 
-  @override
-  void drawFrame() {
+  /// The actual frame drawing logic, registered as a persistent callback.
+  void _drawFrameCallback(Duration timeStamp) {
     if (rootElement == null) return;
 
-    // Build phase
+    // Build phase - handled by BuildOwner via persistent callback
     super.drawFrame();
 
     // Create a new buffer for this frame
@@ -186,7 +185,13 @@ class NoctermTestBinding extends NoctermBinding {
 
     // Store the buffer for inspection
     _lastBuffer = buffer;
-    _hasScheduledFrame = false;
+  }
+
+  @override
+  void initializeBinding() {
+    super.initializeBinding();
+    // Register the test frame drawing as a persistent callback
+    addPersistentFrameCallback(_drawFrameCallback);
   }
 
   /// Shutdown the test binding
