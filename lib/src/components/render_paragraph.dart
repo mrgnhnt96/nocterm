@@ -107,104 +107,73 @@ class RenderParagraph extends RenderObject {
   }
 
   /// Maps styled segments to the laid out lines.
-  /// 
+  ///
   /// This function takes the original styled segments and the lines produced
   /// by the layout engine, and creates a list of styled segments for each line.
+  ///
+  /// The key insight is that the layout engine:
+  /// 1. Splits text by '\n' into paragraphs
+  /// 2. Word-wraps each paragraph into multiple lines
+  /// 3. Returns lines WITHOUT the newline characters
+  ///
+  /// We need to map character positions from the laid-out lines back to the
+  /// original styled segments, skipping newlines in the source text.
   List<List<StyledTextSegment>> _mapSegmentsToLines(
     List<StyledTextSegment> segments,
     List<String> lines,
   ) {
     final List<List<StyledTextSegment>> styledLines = [];
-    
-    // Create a flattened string from all segments to match against laid out lines
-    final StringBuffer fullTextBuffer = StringBuffer();
+
+    // Flatten segments into a list of (char, style) pairs for easier indexing
+    final List<(String, TextStyle?)> charStyles = [];
     for (final segment in segments) {
-      fullTextBuffer.write(segment.text);
+      for (int i = 0; i < segment.text.length; i++) {
+        charStyles.add((segment.text[i], segment.style));
+      }
     }
-    final String fullText = fullTextBuffer.toString();
-    
-    int textPos = 0; // Position in the full text
-    int segmentIndex = 0;
-    int segmentPos = 0;
-    
-    for (final String line in lines) {
+
+    int charIndex = 0;
+
+    for (final line in lines) {
       final List<StyledTextSegment> lineSegments = [];
+
+      // Skip any newlines at current position (paragraph breaks)
+      while (charIndex < charStyles.length && charStyles[charIndex].$1 == '\n') {
+        charIndex++;
+      }
+
+      // Now consume characters for this line
       int linePos = 0;
-      
-      while (linePos < line.length && segmentIndex < segments.length) {
-        var segment = segments[segmentIndex];
-        
-        // Skip to the next segment if we've consumed the current one
-        while (segmentPos >= segment.text.length && segmentIndex < segments.length - 1) {
-          segmentIndex++;
-          segmentPos = 0;
-          if (segmentIndex < segments.length) {
-            segment = segments[segmentIndex];
-          }
-        }
-        
-        if (segmentIndex >= segments.length) break;
-        
-        // Calculate how much we can take from the current segment
-        final remainingInSegment = segments[segmentIndex].text.length - segmentPos;
-        final remainingInLine = line.length - linePos;
-        
-        if (remainingInSegment <= 0) {
-          segmentIndex++;
-          segmentPos = 0;
+      while (linePos < line.length && charIndex < charStyles.length) {
+        final (char, style) = charStyles[charIndex];
+
+        // Skip newlines in source (they don't appear in laid out lines)
+        if (char == '\n') {
+          charIndex++;
           continue;
         }
-        
-        final takeLength = remainingInSegment < remainingInLine 
-            ? remainingInSegment 
-            : remainingInLine;
-        
-        // Extract the text, making sure we're getting the right portion
-        String text = segments[segmentIndex].text.substring(segmentPos, segmentPos + takeLength);
-        
-        // Check if this matches what we expect in the line
-        final expectedText = line.substring(linePos, linePos + takeLength);
-        if (text != expectedText) {
-          // Handle case where newlines in segments don't match the laid out text
-          // This can happen when newlines are present in the segments
-          text = expectedText;
+
+        // Find consecutive characters with same style
+        final currentStyle = style;
+        final buffer = StringBuffer();
+
+        while (charIndex < charStyles.length &&
+               linePos < line.length &&
+               charStyles[charIndex].$2 == currentStyle &&
+               charStyles[charIndex].$1 != '\n') {
+          buffer.write(charStyles[charIndex].$1);
+          charIndex++;
+          linePos++;
         }
-        
-        lineSegments.add(StyledTextSegment(text, segments[segmentIndex].style));
-        
-        segmentPos += takeLength;
-        linePos += takeLength;
-        textPos += takeLength;
-        
-        if (segmentPos >= segments[segmentIndex].text.length) {
-          segmentIndex++;
-          segmentPos = 0;
+
+        if (buffer.isNotEmpty) {
+          lineSegments.add(StyledTextSegment(buffer.toString(), currentStyle));
         }
       }
-      
+
       styledLines.add(lineSegments);
-      
-      // After processing a line, skip any newlines in the source text
-      while (textPos < fullText.length && 
-             (fullText[textPos] == '\n' || 
-              (textPos + 1 < fullText.length && line.length > 0 && fullText[textPos] == ' '))) {
-        textPos++;
-        // Also advance our segment tracking
-        if (segmentIndex < segments.length) {
-          while (segmentPos < segments[segmentIndex].text.length && 
-                 (segments[segmentIndex].text[segmentPos] == '\n' || 
-                  segments[segmentIndex].text[segmentPos] == ' ')) {
-            segmentPos++;
-            if (segmentPos >= segments[segmentIndex].text.length) {
-              segmentIndex++;
-              segmentPos = 0;
-              if (segmentIndex >= segments.length) break;
-            }
-          }
-        }
-      }
     }
-    
+
     return styledLines;
   }
 
