@@ -26,7 +26,9 @@ export 'decorated_box.dart'
         BoxShape,
         BoxShadow,
         DecorationPosition,
-        DecoratedBox;
+        DecoratedBox,
+        BorderTitle,
+        TitleAlignment;
 
 /// A run of text with a single style
 class Text extends SingleChildRenderObjectComponent {

@@ -2,6 +2,26 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm/src/framework/terminal_canvas.dart';
 import 'package:nocterm/src/rectangle.dart';
 
+/// Title alignment options for border titles
+enum TitleAlignment {
+  left,
+  center,
+  right,
+}
+
+/// Configuration for a title embedded in a border
+class BorderTitle {
+  const BorderTitle({
+    required this.text,
+    this.alignment = TitleAlignment.left,
+    this.style,
+  });
+
+  final String text;
+  final TitleAlignment alignment;
+  final TextStyle? style;
+}
+
 /// Border side configuration for a box decoration
 class BorderSide {
   const BorderSide({
@@ -132,6 +152,7 @@ class BoxDecoration {
     this.gradient,
     this.backgroundBlendMode,
     this.shape = BoxShape.rectangle,
+    this.title,
   });
 
   final Color? color;
@@ -142,6 +163,7 @@ class BoxDecoration {
   final Gradient? gradient;
   final BlendMode? backgroundBlendMode;
   final BoxShape shape;
+  final BorderTitle? title;
 }
 
 /// Shape of the box
@@ -308,7 +330,7 @@ class RenderDecoratedBox extends RenderObject with RenderObjectWithChildMixin<Re
 
     // Paint top border
     if (!border.top.isNone) {
-      final style = TextStyle(color: border.top.color);
+      final borderStyle = TextStyle(color: border.top.color);
       if (left == right) {
         // Special case: width is 1
         // Determine which character to use based on what borders exist
@@ -323,13 +345,96 @@ class RenderDecoratedBox extends RenderObject with RenderObjectWithChildMixin<Re
         } else {
           charToUse = chars.horizontal;
         }
-        _setCell(canvas, left, top, charToUse, style);
+        _setCell(canvas, left, top, charToUse, borderStyle);
       } else {
-        _setCell(canvas, left, top, chars.topLeft, style);
-        for (int x = left + 1; x < right; x++) {
-          _setCell(canvas, x, top, chars.horizontal, style);
+        // Use corner only if left border connects, otherwise use horizontal
+        final leftTopChar = !border.left.isNone ? chars.topLeft : chars.horizontal;
+        _setCell(canvas, left, top, leftTopChar, borderStyle);
+
+        // Check if we have a title to render
+        final title = _decoration.title;
+        final horizontalWidth = right - left - 1; // Available width between corners
+
+        if (title != null && horizontalWidth >= 5) {
+          // Minimum width: space + 1 char title + space + some border chars
+          // Format: ─ Title ─────
+          final titleText = title.text;
+          final titleStyle = title.style ?? borderStyle;
+
+          // Calculate title display with " Title " format (space padding)
+          // We need at least 2 horizontal chars for aesthetics
+          final maxTitleWidth = horizontalWidth - 2; // Reserve 2 chars for border lines
+          String displayTitle;
+          if (titleText.length + 2 > maxTitleWidth) {
+            // Truncate with ellipsis
+            final truncateLen = maxTitleWidth - 3; // -3 for "..." and space padding
+            if (truncateLen > 0) {
+              displayTitle = ' ${titleText.substring(0, truncateLen)}… ';
+            } else {
+              // Not enough space even for ellipsis, skip title
+              displayTitle = '';
+            }
+          } else {
+            displayTitle = ' $titleText ';
+          }
+
+          if (displayTitle.isNotEmpty) {
+            final titleWidth = displayTitle.length;
+            final remainingWidth = horizontalWidth - titleWidth;
+
+            int titleStartX;
+            int leftBorderLen;
+            int rightBorderLen;
+
+            switch (title.alignment) {
+              case TitleAlignment.left:
+                leftBorderLen = 1; // Single horizontal char before title
+                titleStartX = left + 1 + leftBorderLen;
+                rightBorderLen = remainingWidth - leftBorderLen;
+                break;
+              case TitleAlignment.center:
+                leftBorderLen = remainingWidth ~/ 2;
+                titleStartX = left + 1 + leftBorderLen;
+                rightBorderLen = remainingWidth - leftBorderLen;
+                break;
+              case TitleAlignment.right:
+                rightBorderLen = 1; // Single horizontal char after title
+                leftBorderLen = remainingWidth - rightBorderLen;
+                titleStartX = left + 1 + leftBorderLen;
+                break;
+            }
+
+            // Paint left horizontal chars
+            for (int i = 0; i < leftBorderLen; i++) {
+              _setCell(canvas, left + 1 + i, top, chars.horizontal, borderStyle);
+            }
+
+            // Paint title
+            for (int i = 0; i < displayTitle.length; i++) {
+              _setCell(canvas, titleStartX + i, top, displayTitle[i], titleStyle);
+            }
+
+            // Paint right horizontal chars
+            final rightStartX = titleStartX + titleWidth;
+            for (int i = 0; i < rightBorderLen; i++) {
+              _setCell(canvas, rightStartX + i, top, chars.horizontal, borderStyle);
+            }
+          } else {
+            // Title too short, render normal border
+            for (int x = left + 1; x < right; x++) {
+              _setCell(canvas, x, top, chars.horizontal, borderStyle);
+            }
+          }
+        } else {
+          // No title or not enough space, render normal horizontal line
+          for (int x = left + 1; x < right; x++) {
+            _setCell(canvas, x, top, chars.horizontal, borderStyle);
+          }
         }
-        _setCell(canvas, right, top, chars.topRight, style);
+
+        // Use corner only if right border connects, otherwise use horizontal
+        final rightTopChar = !border.right.isNone ? chars.topRight : chars.horizontal;
+        _setCell(canvas, right, top, rightTopChar, borderStyle);
       }
     }
 
@@ -352,11 +457,15 @@ class RenderDecoratedBox extends RenderObject with RenderObjectWithChildMixin<Re
         }
         _setCell(canvas, left, bottom, charToUse, style);
       } else {
-        _setCell(canvas, left, bottom, chars.bottomLeft, style);
+        // Use corner only if left border connects, otherwise use horizontal
+        final leftBottomChar = !border.left.isNone ? chars.bottomLeft : chars.horizontal;
+        _setCell(canvas, left, bottom, leftBottomChar, style);
         for (int x = left + 1; x < right; x++) {
           _setCell(canvas, x, bottom, chars.horizontal, style);
         }
-        _setCell(canvas, right, bottom, chars.bottomRight, style);
+        // Use corner only if right border connects, otherwise use horizontal
+        final rightBottomChar = !border.right.isNone ? chars.bottomRight : chars.horizontal;
+        _setCell(canvas, right, bottom, rightBottomChar, style);
       }
     }
 
