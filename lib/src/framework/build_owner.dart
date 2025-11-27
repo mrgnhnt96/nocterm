@@ -61,16 +61,9 @@ class BuildOwner {
 
     while (index < dirtyCount) {
       final element = _dirtyElements[index];
-
-      // Skip elements that are no longer active (they may have been deactivated
-      // since they were scheduled for build)
-      if (element._lifecycleState != _ElementLifecycle.active) {
-        element._inDirtyList = false;
-        index += 1;
-        continue;
-      }
-
       assert(element._inDirtyList);
+      assert(element._lifecycleState == _ElementLifecycle.active);
+
       element.rebuild();
       element._inDirtyList = false;
       index += 1;

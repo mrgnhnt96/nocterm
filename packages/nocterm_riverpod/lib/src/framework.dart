@@ -203,7 +203,7 @@ extension on BuildContext {
     // This is a workaround since nocterm doesn't expose this directly
     // We need to walk up the tree to find the InheritedElement
     Element? element = this as Element;
-    while (element != null && element.mounted) {
+    while (element != null) {
       if (element is InheritedElement && element.component is T) {
         return element;
       }
