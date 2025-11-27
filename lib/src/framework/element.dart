@@ -172,7 +172,9 @@ abstract class Element implements BuildContext {
   }
 
   void markNeedsBuild() {
-    assert(_lifecycleState == _ElementLifecycle.active);
+    if (_lifecycleState != _ElementLifecycle.active) {
+      return;
+    }
     if (_dirty) {
       return;
     }
@@ -181,7 +183,9 @@ abstract class Element implements BuildContext {
   }
 
   void rebuild() {
-    assert(_lifecycleState == _ElementLifecycle.active);
+    if (_lifecycleState != _ElementLifecycle.active || !_dirty) {
+      return;
+    }
     performRebuild();
   }
 
@@ -360,16 +364,19 @@ abstract class Element implements BuildContext {
   @override
   T? findAncestorComponentOfExactType<T extends Component>() {
     Element? ancestor = parent;
-    while (ancestor != null && ancestor.component.runtimeType != T) {
+    while (ancestor != null && ancestor.mounted) {
+      if (ancestor.component.runtimeType == T) {
+        return ancestor.component as T;
+      }
       ancestor = ancestor.parent;
     }
-    return ancestor?.component as T?;
+    return null;
   }
 
   @override
   T? findAncestorStateOfType<T extends State>() {
     Element? ancestor = parent;
-    while (ancestor != null) {
+    while (ancestor != null && ancestor.mounted) {
       if (ancestor is StatefulElement && ancestor.state is T) {
         return ancestor.state as T;
       }
@@ -381,7 +388,7 @@ abstract class Element implements BuildContext {
   @override
   T? findAncestorRenderObjectOfType<T extends RenderObject>() {
     Element? ancestor = parent;
-    while (ancestor != null) {
+    while (ancestor != null && ancestor.mounted) {
       if (ancestor is RenderObjectElement && ancestor.renderObject is T) {
         return ancestor.renderObject as T;
       }
