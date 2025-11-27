@@ -1,6 +1,7 @@
 library tui.terminal_canvas;
 
 import 'dart:math' as math;
+import 'package:characters/characters.dart';
 import 'package:nocterm/src/rectangle.dart';
 
 import '../buffer.dart';
@@ -61,15 +62,18 @@ class TerminalCanvas {
       return;
     }
 
-    final runes = text.runes.toList();
+    // Replace tab characters with spaces to avoid terminal tab stop behavior
+    text = text.replaceAll('\t', ' ');
+
     int currentColumn = x;
 
-    for (int i = 0; i < runes.length && currentColumn < area.width; i++) {
-      final rune = runes[i];
-      final char = String.fromCharCode(rune);
-      final width = UnicodeWidth.runeWidth(rune);
+    // Use grapheme clusters to properly handle ZWJ sequences and other complex emoji
+    for (final grapheme in text.characters) {
+      if (currentColumn >= area.width) break;
 
-      // Skip zero-width characters
+      final width = UnicodeWidth.graphemeWidth(grapheme);
+
+      // Skip zero-width graphemes (combining marks only)
       if (width == 0) {
         continue;
       }
@@ -92,7 +96,7 @@ class TerminalCanvas {
         cellX,
         cellY,
         Cell(
-          char: char,
+          char: grapheme, // Use the full grapheme cluster, not individual runes
           style: finalStyle,
         ),
       );
