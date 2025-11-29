@@ -9,6 +9,7 @@ import 'package:nocterm/src/rendering/mouse_tracker.dart';
 import 'package:nocterm/src/rendering/mouse_hit_test.dart';
 
 import '../backend/terminal.dart' as term;
+import '../backend/terminal_backend.dart';
 import '../buffer.dart' as buf;
 
 /// Test binding for TUI applications that provides controlled frame rendering
@@ -275,9 +276,52 @@ class NoctermTestBinding extends NoctermBinding with SchedulerBinding {
   }
 }
 
+/// Mock backend for testing that doesn't output to stdout
+class _MockBackend implements TerminalBackend {
+  final Size _size;
+
+  _MockBackend(this._size);
+
+  @override
+  void writeRaw(String data) {}
+
+  @override
+  Size getSize() => _size;
+
+  @override
+  bool get supportsSize => true;
+
+  @override
+  Stream<List<int>>? get inputStream => null;
+
+  @override
+  Stream<Size>? get resizeStream => null;
+
+  @override
+  Stream<void>? get shutdownStream => null;
+
+  @override
+  void enableRawMode() {}
+
+  @override
+  void disableRawMode() {}
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  void notifySizeChanged(Size newSize) {}
+
+  @override
+  void requestExit([int exitCode = 0]) {}
+
+  @override
+  void dispose() {}
+}
+
 /// Mock terminal for testing that doesn't output to stdout
 class _MockTerminal extends term.Terminal {
-  _MockTerminal(Size size) : super(size: size);
+  _MockTerminal(Size size) : super(_MockBackend(size), size: size);
 
   @override
   void enterAlternateScreen() {}

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'backend/terminal.dart';
+import 'backend/stdio_backend.dart';
 import 'frame.dart';
 import 'buffer.dart';
 
@@ -16,7 +17,7 @@ class App {
   Buffer? _previousBuffer;
   bool _forceFullRedraw = false;
 
-  App({required this.onRender, this.onKeyPress}) : terminal = Terminal();
+  App({required this.onRender, this.onKeyPress}) : terminal = Terminal(StdioBackend());
 
   Future<void> run() async {
     _running = true;

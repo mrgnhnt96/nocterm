@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm/src/framework/terminal_canvas.dart';
@@ -17,7 +16,7 @@ import 'hot_reload_mixin.dart';
 
 /// Terminal UI binding that handles terminal input/output and event loop
 class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBinding {
-  TerminalBinding(this.terminal, {Stream<List<int>>? inputStream}) : _customInputStream = inputStream {
+  TerminalBinding(this.terminal) {
     _instance = this;
     _initializePipelineOwner();
   }
@@ -26,7 +25,6 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   static TerminalBinding get instance => _instance!;
 
   final term.Terminal terminal;
-  final Stream<List<int>>? _customInputStream;
   PipelineOwner? _pipelineOwner;
   PipelineOwner get pipelineOwner => _pipelineOwner!;
 
@@ -34,6 +32,9 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   BuildOwner get buildOwner => super.buildOwner;
 
   bool _shouldExit = false;
+  /// Whether the binding has been signaled to exit
+  bool get shouldExit => _shouldExit;
+
   final _inputController = StreamController<String>.broadcast();
   final _keyboardEventController = StreamController<KeyboardEvent>.broadcast();
   final _inputParser = InputParser();
@@ -45,9 +46,8 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   final _eventLoopController = StreamController<void>.broadcast();
   Stream<void> get _eventLoopStream => _eventLoopController.stream;
   StreamSubscription? _inputSubscription;
-  StreamSubscription? _sigwinchSubscription;
-  StreamSubscription? _sigintSubscription;
-  StreamSubscription? _sigtermSubscription;
+  StreamSubscription? _resizeSubscription;
+  StreamSubscription? _shutdownSubscription;
   Size? _lastKnownSize;
 
   void _initializePipelineOwner() {
@@ -106,20 +106,18 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   }
 
   void _startInputHandling() {
-    // Use custom input stream if provided (for shell mode), otherwise use stdin
-    final inputStream = _customInputStream ?? stdin;
+    // Get input stream from the terminal's backend
+    final inputStream = terminal.backend.inputStream;
+    if (inputStream == null) {
+      throw StateError('Terminal backend does not provide input stream');
+    }
 
-    // Only set stdin mode if we're using stdin and have a terminal
-    if (_customInputStream == null) {
-      try {
-        if (stdin.hasTerminal) {
-          stdin.echoMode = false;
-          stdin.lineMode = false;
-        }
-      } catch (e) {
-        // Ignore errors when running without a proper terminal
-        // This happens in CI/CD environments or when piping output
-      }
+    // Enable raw mode via backend
+    try {
+      terminal.backend.enableRawMode();
+    } catch (e) {
+      // Ignore errors when running without a proper terminal
+      // This happens in CI/CD environments or when piping output
     }
 
     // Listen for input at the byte level for proper escape sequence handling
@@ -249,10 +247,11 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
 
     final command = oscContent.substring(0, semicolonIndex);
     final payload = oscContent.substring(semicolonIndex + 1);
-    final shellMode = _customInputStream != null;
+    // Check if backend supports OSC 9999 size updates (shell mode)
+    final supportsOscSizeUpdates = terminal.backend.resizeStream != null;
     switch (command) {
       // Custom OSC sequences for shell mode
-      case "9999" when shellMode: // Terminal Size
+      case "9999" when supportsOscSizeUpdates: // Terminal Size
         _handleTerminalSizeOsc(payload);
         _oscEventsController.add(oscContent);
         break;
@@ -281,6 +280,9 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
         final rows = int.parse(parts[1]);
         final newSize = Size(cols.toDouble(), rows.toDouble());
 
+        // Notify backend of size change (it will emit on resizeStream)
+        terminal.backend.notifySizeChanged(newSize);
+
         // Update terminal size
         terminal.updateSize(newSize);
         _lastKnownSize = newSize;
@@ -294,27 +296,26 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   }
 
   void _startResizeHandling() {
-    // Listen for SIGWINCH signal on Unix systems
-    if (Platform.isLinux || Platform.isMacOS) {
-      _sigwinchSubscription = ProcessSignal.sigwinch.watch().listen((_) {
-        _handleTerminalResize();
+    // Listen to backend's resize stream
+    final resizeStream = terminal.backend.resizeStream;
+    if (resizeStream != null) {
+      _resizeSubscription = resizeStream.listen((newSize) {
+        if (_lastKnownSize == null ||
+            _lastKnownSize!.width != newSize.width ||
+            _lastKnownSize!.height != newSize.height) {
+          _lastKnownSize = newSize;
+          terminal.updateSize(newSize);
+          scheduleFrame();
+        }
       });
     }
-
-    // Also poll for size changes as a fallback
-    // This helps on systems where SIGWINCH might not work properly
-    Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_shouldExit) {
-        _checkForSizeChange();
-      }
-    });
   }
 
   void _startSignalHandling() {
-    // Listen for termination signals to ensure cleanup runs
-    if (Platform.isLinux || Platform.isMacOS) {
-      // Handle SIGINT (Ctrl+C)
-      _sigintSubscription = ProcessSignal.sigint.watch().listen((_) {
+    // Listen to backend's shutdown stream
+    final shutdownStream = terminal.backend.shutdownStream;
+    if (shutdownStream != null) {
+      _shutdownSubscription = shutdownStream.listen((_) {
         // Create a synthetic Ctrl+C keyboard event
         final ctrlCEvent = KeyboardEvent(
           logicalKey: LogicalKey.keyC,
@@ -331,17 +332,8 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
         // If no component handled it, perform default shutdown
         if (!handled) {
           _performImmediateShutdown();
-          exit(0);
+          terminal.backend.requestExit(0);
         }
-      });
-
-      // Handle SIGTERM (kill command)
-      _sigtermSubscription = ProcessSignal.sigterm.watch().listen((_) {
-        // Perform cleanup synchronously
-        _performImmediateShutdown();
-
-        // Exit immediately
-        exit(0);
       });
     }
   }
@@ -354,9 +346,8 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
 
     // Cancel all subscriptions immediately
     _inputSubscription?.cancel();
-    _sigwinchSubscription?.cancel();
-    _sigintSubscription?.cancel();
-    _sigtermSubscription?.cancel();
+    _resizeSubscription?.cancel();
+    _shutdownSubscription?.cancel();
 
     // Close all controllers
     try {
@@ -383,10 +374,10 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
     // Perform terminal cleanup synchronously
     try {
       // IMPORTANT: Disable mouse tracking BEFORE leaving alternate screen
-      terminal.write('\x1B[?1003l'); // Disable all motion tracking
-      terminal.write('\x1B[?1006l'); // Disable SGR mouse mode
-      terminal.write('\x1B[?1002l'); // Disable button event tracking
-      terminal.write('\x1B[?1000l'); // Disable basic mouse tracking
+      terminal.backend.writeRaw('\x1B[?1003l'); // Disable all motion tracking
+      terminal.backend.writeRaw('\x1B[?1006l'); // Disable SGR mouse mode
+      terminal.backend.writeRaw('\x1B[?1002l'); // Disable button event tracking
+      terminal.backend.writeRaw('\x1B[?1000l'); // Disable basic mouse tracking
       terminal.restoreColors(); // Restore terminal colors
       terminal.flush();
 
@@ -395,41 +386,10 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
       terminal.leaveAlternateScreen();
       terminal.clear();
 
-      // Restore stdin (only in normal mode, not shell mode)
-      if (_customInputStream == null && stdin.hasTerminal) {
-        stdin.echoMode = true;
-        stdin.lineMode = true;
-      }
+      // Restore raw mode via backend
+      terminal.backend.disableRawMode();
     } catch (_) {
       // Ignore any errors during cleanup
-    }
-  }
-
-  void _handleTerminalResize() {
-    // Update terminal size and trigger a redraw
-    if (stdout.hasTerminal) {
-      final newSize = Size(stdout.terminalColumns.toDouble(), stdout.terminalLines.toDouble());
-      if (_lastKnownSize == null ||
-          _lastKnownSize!.width != newSize.width ||
-          _lastKnownSize!.height != newSize.height) {
-        _lastKnownSize = newSize;
-        // Update the terminal's cached size
-        terminal.updateSize(newSize);
-        // Schedule a frame redraw
-        scheduleFrame();
-      }
-    }
-  }
-
-  void _checkForSizeChange() {
-    // Periodic check for size changes (fallback for systems without SIGWINCH)
-    if (stdout.hasTerminal) {
-      final currentSize = Size(stdout.terminalColumns.toDouble(), stdout.terminalLines.toDouble());
-      if (_lastKnownSize == null ||
-          _lastKnownSize!.width != currentSize.width ||
-          _lastKnownSize!.height != currentSize.height) {
-        _handleTerminalResize();
-      }
     }
   }
 
@@ -624,12 +584,11 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
 
     _shouldExit = true;
     _inputSubscription?.cancel();
-    _sigwinchSubscription?.cancel();
+    _resizeSubscription?.cancel();
 
-    // Don't cancel signal subscriptions here - let them stay active
-    // so they can handle additional signals if needed
-    // _sigintSubscription?.cancel();
-    // _sigtermSubscription?.cancel();
+    // Don't cancel shutdown subscription here - let it stay active
+    // so it can handle additional signals if needed
+    // _shutdownSubscription?.cancel();
 
     try {
       _inputController.close();
@@ -654,14 +613,11 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
     try {
       // IMPORTANT: Disable mouse tracking and bracketed paste BEFORE leaving alternate screen
       // This ensures the terminal properly processes the disable commands
-      stdout.write('\x1B[?1003l'); // Disable all motion tracking FIRST
-      stdout.write('\x1B[?1006l'); // Disable SGR mouse mode
-      stdout.write('\x1B[?1002l'); // Disable button event tracking
-      stdout.write('\x1B[?1000l'); // Disable basic mouse tracking LAST
-      stdout.write('\x1B[?2004l'); // Disable bracketed paste mode
-
-      // Flush to ensure disable commands are sent immediately
-      stdout.flush();
+      terminal.backend.writeRaw('\x1B[?1003l'); // Disable all motion tracking FIRST
+      terminal.backend.writeRaw('\x1B[?1006l'); // Disable SGR mouse mode
+      terminal.backend.writeRaw('\x1B[?1002l'); // Disable button event tracking
+      terminal.backend.writeRaw('\x1B[?1000l'); // Disable basic mouse tracking LAST
+      terminal.backend.writeRaw('\x1B[?2004l'); // Disable bracketed paste mode
 
       // Restore terminal (this includes leaving alternate screen)
       terminal.showCursor();
@@ -669,33 +625,28 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
 
       // CRITICAL: Disable mouse tracking again after leaving alternate screen
       // Some terminals restore previous state when switching buffers
-      stdout.write('\x1B[?1003l'); // Disable all motion tracking
-      stdout.write('\x1B[?1006l'); // Disable SGR mouse mode
-      stdout.write('\x1B[?1002l'); // Disable button event tracking
-      stdout.write('\x1B[?1000l'); // Disable basic mouse tracking
+      terminal.backend.writeRaw('\x1B[?1003l'); // Disable all motion tracking
+      terminal.backend.writeRaw('\x1B[?1006l'); // Disable SGR mouse mode
+      terminal.backend.writeRaw('\x1B[?1002l'); // Disable button event tracking
+      terminal.backend.writeRaw('\x1B[?1000l'); // Disable basic mouse tracking
 
       // Send a terminal reset sequence as a final safety measure
       // This helps ensure the terminal is in a clean state
-      stdout.write('\x1B[c'); // Reset Device Attributes (soft reset)
-
-      stdout.flush();
+      terminal.backend.writeRaw('\x1B[c'); // Reset Device Attributes (soft reset)
 
       terminal.clear();
 
       // Final flush to ensure all cleanup is complete
       terminal.flush();
     } catch (e) {
-      // If stdout is already closed or bound, we can't write to it
+      // If backend is already closed, we can't write to it
       // This can happen during signal-based shutdown
       // The important thing is we tried to cleanup
     }
 
-    // Restore stdin if we have a terminal
+    // Restore raw mode via backend
     try {
-      if (stdin.hasTerminal) {
-        stdin.echoMode = true;
-        stdin.lineMode = true;
-      }
+      terminal.backend.disableRawMode();
     } catch (e) {
       // Ignore errors when running without a proper terminal
     }
@@ -832,168 +783,6 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   /// Instead, always use this method or set [_shouldExit] to true.
   void requestShutdown([int exitCode = 0]) {
     _performImmediateShutdown();
-    exit(exitCode);
-  }
-}
-
-/// Run a TUI application
-///
-/// Automatically detects if a nocterm shell is running by checking for
-/// the shell_handle file in the global nocterm directory. If found, the app
-/// will render into the shell instead of directly to stdout, allowing IDE
-/// debugger support.
-///
-/// Logs are streamed via WebSocket and can be viewed with `nocterm logs`.
-/// In shell mode, print() statements also appear in the host's stdout.
-/// In normal mode, only WebSocket logs are available.
-Future<void> runApp(Component app, {bool enableHotReload = true}) async {
-  // Check for shell mode
-  final shellHandleFile = File(getShellHandlePath());
-  final useShellMode = await shellHandleFile.exists();
-
-  if (useShellMode) {
-    // Shell mode: connect to nocterm shell
-    // In this mode, prints go to both WebSocket logs and host stdout
-    await _runAppInShellMode(app, shellHandleFile, enableHotReload);
-  } else {
-    // Normal mode: render directly to terminal
-    // In this mode, prints go to WebSocket logs since stdout is used for TUI
-    await _runAppNormalMode(app, enableHotReload);
-  }
-}
-
-/// Run app in normal mode (direct terminal rendering)
-Future<void> _runAppNormalMode(Component app, bool enableHotReload) async {
-  TerminalBinding? binding;
-  LogServer? logServer;
-  Logger? logger;
-
-  try {
-    // Start log server
-    logServer = LogServer();
-    try {
-      await logServer.start();
-      logger = Logger(logServer: logServer);
-    } catch (e) {
-      stderr.writeln('Failed to start log server: $e');
-      // Continue without logging
-    }
-
-    await runZoned(() async {
-      final terminal = term.Terminal();
-      binding = TerminalBinding(terminal);
-
-      binding!.initialize();
-      binding!.attachRootComponent(app);
-
-      // Initialize hot reload in development mode
-      if (enableHotReload && !bool.fromEnvironment('dart.vm.product')) {
-        await binding!.initializeHotReload();
-      }
-
-      await binding!.runEventLoop();
-    },
-        zoneSpecification: ZoneSpecification(
-          print: (Zone self, ZoneDelegate parent, Zone zone, String message) {
-            // Write to logger via WebSocket
-            logger?.log(message);
-          },
-          handleUncaughtError: (Zone self, ZoneDelegate parent, Zone zone, Object error, StackTrace stackTrace) {
-            // Log errors with stack traces
-            logger?.log('ERROR: $error\n$stackTrace');
-          },
-        ));
-  } catch (e) {
-    // If we exit via signal handler, this might throw
-    // Just ensure cleanup happens
-  } finally {
-    // Ensure binding cleanup if not already done
-    if (binding != null && !binding!._shouldExit) {
-      binding!.shutdown();
-    }
-
-    // Close logger and log server gracefully
-    try {
-      await logger?.close();
-      await logServer?.close();
-    } catch (_) {
-      // Ignore errors if already closed
-    }
-  }
-}
-
-/// Run app in shell mode (render to nocterm shell via socket)
-Future<void> _runAppInShellMode(Component app, File shellHandleFile, bool enableHotReload) async {
-  TerminalBinding? binding;
-  LogServer? logServer;
-  Logger? logger;
-
-  try {
-    // Start log server
-    logServer = LogServer();
-    try {
-      await logServer.start();
-      logger = Logger(logServer: logServer);
-    } catch (e) {
-      stderr.writeln('Failed to start log server: $e');
-      // Continue without logging
-    }
-
-    // Read socket path from handle file
-    final socketPath = await shellHandleFile.readAsString();
-
-    // Connect to shell socket
-    final socket = await Socket.connect(
-      InternetAddress(socketPath.trim(), type: InternetAddressType.unix),
-      0,
-    );
-
-    await runZoned(() async {
-      // Use SocketTerminal which writes to socket instead of stdout
-      // And use socket as input stream instead of stdin
-      final terminal = term.SocketTerminal(socket);
-      binding = TerminalBinding(terminal, inputStream: socket);
-
-      binding!.initialize();
-      binding!.attachRootComponent(app);
-
-      // Initialize hot reload in development mode
-      if (enableHotReload && !bool.fromEnvironment('dart.vm.product')) {
-        await binding!.initializeHotReload();
-      }
-
-      await binding!.runEventLoop();
-    },
-        zoneSpecification: ZoneSpecification(
-          print: (Zone self, ZoneDelegate parent, Zone zone, String message) {
-            // In shell mode, print() goes to both:
-            // 1. WebSocket logs (for nocterm logs command)
-            logger?.log(message);
-            // 2. Host's stdout (IDE/terminal for immediate debugging)
-            parent.print(zone, message);
-          },
-          handleUncaughtError: (Zone self, ZoneDelegate parent, Zone zone, Object error, StackTrace stackTrace) {
-            // Errors also go to both
-            final errorMessage = 'ERROR: $error\n$stackTrace';
-            logger?.log(errorMessage);
-            stderr.writeln(errorMessage);
-          },
-        ));
-  } catch (e) {
-    // Log connection errors to stderr in shell mode
-    stderr.writeln('Shell mode error: $e');
-  } finally {
-    // Ensure binding cleanup if not already done
-    if (binding != null && !binding!._shouldExit) {
-      binding!.shutdown();
-    }
-
-    // Close logger and log server gracefully
-    try {
-      await logger?.close();
-      await logServer?.close();
-    } catch (_) {
-      // Ignore errors if already closed
-    }
+    terminal.backend.requestExit(exitCode);
   }
 }

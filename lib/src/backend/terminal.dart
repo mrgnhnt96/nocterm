@@ -1,7 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:meta/meta.dart';
 import 'package:nocterm/src/size.dart';
 import 'package:nocterm/src/style.dart';
+
+import 'terminal_backend.dart';
 
 class Position {
   final int x;
@@ -11,12 +14,19 @@ class Position {
 }
 
 class Terminal {
+  final TerminalBackend backend;
   late Size _size;
   Stream<String>? _oscStream;
-  bool _altScreenEnabled = false;
 
-  // Write buffer for batching output
-  final StringBuffer _writeBuffer = StringBuffer();
+  /// Whether alternate screen mode is enabled.
+  /// Protected for subclass access (e.g., WebTerminal).
+  @protected
+  bool altScreenEnabled = false;
+
+  /// Write buffer for batching output.
+  /// Protected for subclass access (e.g., WebTerminal).
+  @protected
+  final StringBuffer writeBuffer = StringBuffer();
 
   // ANSI escape codes for terminal control
   static const _hideCursor = '\x1b[?25l';
@@ -33,8 +43,8 @@ class Terminal {
   static final _bgRegexp = RegExp('11;$_rgbPattern');
   static final _fgRegexp = RegExp('10;$_rgbPattern');
 
-  Terminal({Size? size}) {
-    _size = size ?? _getTerminalSize();
+  Terminal(this.backend, {Size? size}) {
+    _size = size ?? backend.getSize();
   }
 
   Size get size => _size;
@@ -47,30 +57,22 @@ class Terminal {
     _oscStream = oscStream;
   }
 
-  static Size _getTerminalSize() {
-    if (stdout.hasTerminal) {
-      return Size(
-          stdout.terminalColumns.toDouble(), stdout.terminalLines.toDouble());
-    }
-    return const Size(80, 80);
-  }
-
   void enterAlternateScreen() {
-    if (!_altScreenEnabled) {
+    if (!altScreenEnabled) {
       // These need immediate effect, so flush any pending writes first
       flush();
-      stdout.write(_alternateBuffer);
+      backend.writeRaw(_alternateBuffer);
       clear();
-      _altScreenEnabled = true;
+      altScreenEnabled = true;
     }
   }
 
   void leaveAlternateScreen() {
-    if (_altScreenEnabled) {
+    if (altScreenEnabled) {
       // These need immediate effect, so flush any pending writes first
       flush();
-      stdout.write(_mainBuffer);
-      _altScreenEnabled = false;
+      backend.writeRaw(_mainBuffer);
+      altScreenEnabled = false;
     }
   }
 
@@ -82,7 +84,7 @@ class Terminal {
   void showCursor() {
     // This needs immediate effect when exiting
     flush();
-    stdout.write(_showCursor);
+    backend.writeRaw(_showCursor);
   }
 
   void clear() {
@@ -109,17 +111,15 @@ class Terminal {
   }
 
   void write(String text) {
-    _writeBuffer.write(text);
+    writeBuffer.write(text);
   }
 
   void flush() {
-    if (_writeBuffer.isNotEmpty) {
-      final bufferContent = _writeBuffer.toString();
-      // DEBUG: Check if buffer contains OSC 52
-      stdout.write(bufferContent);
-      _writeBuffer.clear();
+    if (writeBuffer.isNotEmpty) {
+      final bufferContent = writeBuffer.toString();
+      backend.writeRaw(bufferContent);
+      writeBuffer.clear();
     }
-    //stdout.flush();
   }
 
   /// Set terminal foreground color
@@ -181,15 +181,15 @@ class Terminal {
 
   /// Restore terminal colors to defaults
   void restoreColors() {
-    stdout.write('\x1b]110'); // foreground
-    stdout.write('\x1b]111'); // background
+    backend.writeRaw('\x1b]110'); // foreground
+    backend.writeRaw('\x1b]111'); // background
   }
 
   void reset() {
     showCursor();
     restoreColors();
     leaveAlternateScreen();
-    stdout.write('\x1b[0m'); // Reset all attributes
+    backend.writeRaw('\x1b[0m'); // Reset all attributes
   }
 
   /// Write OSC 52 clipboard sequence to copy text to system clipboard.
@@ -240,47 +240,5 @@ class Terminal {
     const osc = '\x1b]';
     const bel = '\x07';
     write('${osc}0;$text$bel');
-  }
-}
-
-/// Terminal that writes output to a socket instead of stdout.
-/// Used for shell mode where the app renders into a separate shell process.
-class SocketTerminal extends Terminal {
-  final Socket _socket;
-
-  SocketTerminal(this._socket, {Size? size}) : super(size: size);
-
-  @override
-  void flush() {
-    if (_writeBuffer.isNotEmpty) {
-      final bufferContent = _writeBuffer.toString();
-      _socket.write(bufferContent);
-      _writeBuffer.clear();
-    }
-  }
-
-  @override
-  void enterAlternateScreen() {
-    if (!_altScreenEnabled) {
-      flush();
-      _socket.write(Terminal._alternateBuffer);
-      clear();
-      _altScreenEnabled = true;
-    }
-  }
-
-  @override
-  void leaveAlternateScreen() {
-    if (_altScreenEnabled) {
-      flush();
-      _socket.write(Terminal._mainBuffer);
-      _altScreenEnabled = false;
-    }
-  }
-
-  @override
-  void showCursor() {
-    flush();
-    _socket.write(Terminal._showCursor);
   }
 }

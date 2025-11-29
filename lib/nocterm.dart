@@ -1,5 +1,10 @@
 export 'src/app.dart';
 export 'src/backend/terminal.dart';
+export 'src/backend/terminal_backend.dart';
+// Platform-specific backends use conditional exports
+export 'src/backend/stdio_backend_export.dart';
+export 'src/backend/socket_backend_export.dart';
+export 'src/backend/web_backend_export.dart';
 export 'src/buffer.dart';
 export 'src/frame.dart';
 export 'src/style.dart';
@@ -13,6 +18,7 @@ export 'src/size.dart';
 export 'src/rectangle.dart';
 export 'src/test/nocterm_test_binding.dart';
 export 'src/binding/terminal_binding.dart';
+export 'src/binding/run_app.dart' show runApp;
 export 'src/binding/scheduler_binding.dart';
 export 'src/binding/scheduler_phase.dart';
 export 'src/components/basic.dart';
