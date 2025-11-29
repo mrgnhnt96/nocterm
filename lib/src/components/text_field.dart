@@ -121,6 +121,7 @@ class TextField extends StatefulComponent {
     this.onChanged,
     this.onEditingComplete,
     this.onSubmitted,
+    this.onPaste,
     this.enabled = true,
     this.cursorColor,
     this.cursorStyle = CursorStyle.block,
@@ -155,6 +156,10 @@ class TextField extends StatefulComponent {
   final ValueChanged<String>? onChanged;
   final VoidCallback? onEditingComplete;
   final ValueChanged<String>? onSubmitted;
+  /// Callback invoked when text is pasted.
+  /// Return `true` to indicate the paste was handled (skip default insertion).
+  /// Return `false` or null to proceed with default insertion.
+  final bool Function(String pastedText)? onPaste;
   final bool enabled;
   final Color? cursorColor;
   final CursorStyle cursorStyle;
@@ -797,7 +802,12 @@ class _TextFieldState extends State<TextField> {
         clipboardText = clipboardText.replaceAll(RegExp(r'\r'), '\n');
       }
 
-      _insertText(clipboardText);
+      // Call onPaste callback if provided
+      // If callback returns true, the paste was handled externally - skip default insertion
+      final handled = component.onPaste?.call(clipboardText) ?? false;
+      if (!handled) {
+        _insertText(clipboardText);
+      }
     }
   }
 

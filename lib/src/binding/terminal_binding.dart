@@ -32,6 +32,7 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
   BuildOwner get buildOwner => super.buildOwner;
 
   bool _shouldExit = false;
+
   /// Whether the binding has been signaled to exit
   bool get shouldExit => _shouldExit;
 
@@ -130,30 +131,40 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
       // Parse the bytes and process ALL events in the buffer
       _inputParser.addBytes(bytes);
 
-      // Process all available events
+      // Collect all events from this stdin read
+      final events = <InputEvent>[];
       InputEvent? inputEvent;
       while ((inputEvent = _inputParser.parseNext()) != null) {
-        if (inputEvent is KeyboardInputEvent) {
-          final event = inputEvent.event;
+        events.add(inputEvent!);
+      }
+
+      // Batch consecutive printable character events into a synthetic paste
+      // This handles terminals (like Warp) that don't use bracketed paste for drag-drop
+      final batchedEvents = _batchCharacterEvents(events);
+
+      // Process all batched events
+      for (final event in batchedEvents) {
+        if (event is KeyboardInputEvent) {
+          final keyEvent = event.event;
           // Add to keyboard event stream
-          _keyboardEventController.add(event);
+          _keyboardEventController.add(keyEvent);
 
           // Route the event through the component tree
-          _routeKeyboardEvent(event);
+          _routeKeyboardEvent(keyEvent);
 
           // Note: Ctrl+C (SIGINT) is routed through the event system first,
           // allowing components to intercept it. Falls back to shutdown if unhandled.
-        } else if (inputEvent is MouseInputEvent) {
-          final event = inputEvent.event;
+        } else if (event is MouseInputEvent) {
+          final mouseEvent = event.event;
 
           // Add to mouse event stream
-          _mouseEventController.add(event);
+          _mouseEventController.add(mouseEvent);
 
           // Route the mouse event through the component tree
-          _routeMouseEvent(event);
-        } else if (inputEvent is PasteInputEvent) {
-          // Handle bracketed paste: copy to clipboard then send Ctrl+V
-          ClipboardManager.copy(inputEvent.text);
+          _routeMouseEvent(mouseEvent);
+        } else if (event is PasteInputEvent) {
+          // Handle bracketed paste (or batched characters): copy to clipboard then send Ctrl+V
+          ClipboardManager.copy(event.text);
 
           // Generate a Ctrl+V keyboard event to trigger the paste
           final pasteEvent = KeyboardEvent(
@@ -202,9 +213,7 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
             foundTerminator = true;
             break;
           }
-          if (end + 1 < bytes.length &&
-              bytes[end] == 0x1b &&
-              bytes[end + 1] == 0x5c) {
+          if (end + 1 < bytes.length && bytes[end] == 0x1b && bytes[end + 1] == 0x5c) {
             // Found ST terminator
             foundTerminator = true;
             end++;
@@ -215,8 +224,7 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
 
         if (foundTerminator && end < bytes.length) {
           // Extract OSC content
-          final oscContent =
-          utf8.decode(bytes.sublist(i + 2, end), allowMalformed: true);
+          final oscContent = utf8.decode(bytes.sublist(i + 2, end), allowMalformed: true);
 
           // Handle OSC sequence based on command number
           _handleOscSequence(oscContent);
@@ -293,6 +301,62 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
         // Invalid size, ignore
       }
     }
+  }
+
+  /// Batch consecutive printable character events into a single PasteInputEvent.
+  ///
+  /// This handles terminals (like Warp) that don't wrap drag-drop in bracketed
+  /// paste mode. When multiple printable characters arrive in a single stdin
+  /// read, they're clearly from a paste/drag-drop rather than typing, so we
+  /// batch them together for efficient processing.
+  ///
+  /// Single characters pass through unchanged for responsive typing.
+  List<InputEvent> _batchCharacterEvents(List<InputEvent> events) {
+    if (events.length <= 1) {
+      // Single event or empty - no batching needed, keeps typing responsive
+      return events;
+    }
+
+    final result = <InputEvent>[];
+    final charBuffer = StringBuffer();
+
+    void flushCharBuffer() {
+      if (charBuffer.isNotEmpty) {
+        // Convert batched characters to a PasteInputEvent
+        result.add(PasteInputEvent(charBuffer.toString()));
+        charBuffer.clear();
+      }
+    }
+
+    for (final event in events) {
+      if (event is KeyboardInputEvent) {
+        final keyEvent = event.event;
+        // Check if this is a simple printable character (no modifiers except shift)
+        final isPrintable = keyEvent.character != null &&
+            keyEvent.character!.isNotEmpty &&
+            !keyEvent.isControlPressed &&
+            !keyEvent.isAltPressed &&
+            !keyEvent.isMetaPressed;
+
+        if (isPrintable) {
+          // Add to batch
+          charBuffer.write(keyEvent.character);
+        } else {
+          // Non-printable key (arrow, enter, ctrl+x, etc.) - flush buffer first
+          flushCharBuffer();
+          result.add(event);
+        }
+      } else {
+        // Mouse event or other - flush buffer first
+        flushCharBuffer();
+        result.add(event);
+      }
+    }
+
+    // Flush any remaining characters
+    flushCharBuffer();
+
+    return result;
   }
 
   void _startResizeHandling() {
