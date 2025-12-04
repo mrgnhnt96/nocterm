@@ -348,13 +348,27 @@ class _MarkdownVisitor {
         final isOrderedList = false; // Default to unordered
         // ignore: dead_code
         final bullet = isOrderedList ? '${_orderedListCounter++}. ' : styleSheet.listBullet;
-        return TextSpan(
-          children: [
-            TextSpan(text: indent + bullet),
-            ...visitChildren(element),
-            const TextSpan(text: '\n'),
-          ],
-        );
+        final children = <InlineSpan>[TextSpan(text: indent + bullet)];
+
+        if (element.children != null) {
+          for (final child in element.children!) {
+            // Insert line break before nested lists
+            if (child is md.Element && (child.tag == 'ul' || child.tag == 'ol')) {
+              // Only add newline if there's content before the nested list
+              if (children.length > 1) {
+                children.add(const TextSpan(text: '\n'));
+              }
+            }
+
+            final span = visitNode(child);
+            if (span != null) {
+              children.add(span);
+            }
+          }
+        }
+
+        children.add(const TextSpan(text: '\n'));
+        return TextSpan(children: children);
       case 'hr':
         final width = 40; // Default width for horizontal rule
         return TextSpan(
