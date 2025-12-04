@@ -240,6 +240,54 @@ class Color {
           : 'Color(a: $alpha, r: $red, g: $green, b: $blue)';
 }
 
+/// A color represented using [alpha], [hue], [saturation], and [value].
+///
+/// Useful for color computations like rotating through the color spectrum.
+class HSVColor {
+  const HSVColor.fromAHSV(this.alpha, this.hue, this.saturation, this.value)
+    : assert(alpha >= 0.0 && alpha <= 1.0),
+      assert(hue >= 0.0 && hue <= 360.0),
+      assert(saturation >= 0.0 && saturation <= 1.0),
+      assert(value >= 0.0 && value <= 1.0);
+
+  final double alpha;
+  final double hue;
+  final double saturation;
+  final double value;
+
+  HSVColor withHue(double hue) {
+    return HSVColor.fromAHSV(alpha, hue % 360.0, saturation, value);
+  }
+
+  Color toColor() {
+    final double chroma = saturation * value;
+    final double secondary = chroma * (1.0 - (((hue / 60.0) % 2.0) - 1.0).abs());
+    final double match = value - chroma;
+
+    double red, green, blue;
+    if (hue < 60.0) {
+      red = chroma; green = secondary; blue = 0.0;
+    } else if (hue < 120.0) {
+      red = secondary; green = chroma; blue = 0.0;
+    } else if (hue < 180.0) {
+      red = 0.0; green = chroma; blue = secondary;
+    } else if (hue < 240.0) {
+      red = 0.0; green = secondary; blue = chroma;
+    } else if (hue < 300.0) {
+      red = secondary; green = 0.0; blue = chroma;
+    } else {
+      red = chroma; green = 0.0; blue = secondary;
+    }
+
+    return Color.fromARGB(
+      (alpha * 255).round(),
+      ((red + match) * 255).round(),
+      ((green + match) * 255).round(),
+      ((blue + match) * 255).round(),
+    );
+  }
+}
+
 /// The thickness of the glyphs used to draw the text.
 ///
 /// Simplified version of Flutter's FontWeight for terminal use.

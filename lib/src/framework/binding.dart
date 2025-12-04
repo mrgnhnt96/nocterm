@@ -19,7 +19,51 @@ abstract class NoctermBinding {
   @protected
   @mustCallSuper
   void initializeBinding() {
-    // Base implementation does nothing
+    initServiceExtensions();
+  }
+
+  /// Called when the binding is initialized to register service extensions.
+  /// Subclasses should override this and call super.
+  @protected
+  @mustCallSuper
+  void initServiceExtensions() {
+    // Base class has no extensions to register
+  }
+
+  /// Registers a service extension method with the given name.
+  /// The full name will be "ext.nocterm.name".
+  @protected
+  void registerServiceExtension({
+    required String name,
+    required Future<Map<String, dynamic>> Function(Map<String, String> parameters) callback,
+  }) {
+    developer.registerExtension(
+      'ext.nocterm.$name',
+      (String method, Map<String, String> parameters) async {
+        final result = await callback(parameters);
+        return developer.ServiceExtensionResponse.result(
+          json.encode(result),
+        );
+      },
+    );
+  }
+
+  /// Registers a service extension for a boolean value.
+  @protected
+  void registerBoolServiceExtension({
+    required String name,
+    required Future<bool> Function() getter,
+    required Future<void> Function(bool value) setter,
+  }) {
+    registerServiceExtension(
+      name: name,
+      callback: (Map<String, String> parameters) async {
+        if (parameters.containsKey('enabled')) {
+          await setter(parameters['enabled'] == 'true');
+        }
+        return <String, dynamic>{'enabled': (await getter()).toString()};
+      },
+    );
   }
 
   /// Clear the singleton instance - only for testing

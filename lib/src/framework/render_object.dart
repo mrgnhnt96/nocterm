@@ -276,6 +276,11 @@ abstract class RenderObject {
     if (_needsPaint) return;
     _needsPaint = true;
 
+    // Track for debug rainbow visualization
+    if (debugRepaintRainbowEnabled) {
+      _debugWasMarkedNeedsPaint = true;
+    }
+
     // Check if this is a repaint boundary
     if (parent != null) {
       // Continue propagation up the tree
@@ -285,6 +290,10 @@ abstract class RenderObject {
       owner?.requestVisualUpdate();
     }
   }
+
+  /// Debug flag: true if this render object was marked as needing paint
+  /// during this frame. Reset after painting.
+  bool _debugWasMarkedNeedsPaint = false;
 
   /// Compute the layout for this render object.
   ///
@@ -372,6 +381,35 @@ abstract class RenderObject {
 
     try {
       paint(canvas, offset);
+
+      // Debug: Apply rainbow tint overlay only to render objects that were
+      // actually marked as needing repaint (not just painted as part of tree)
+      if (debugRepaintRainbowEnabled && hasSize && _debugWasMarkedNeedsPaint) {
+        final rainbowColor = debugCurrentRepaintColor.toColor();
+        final buffer = canvas.buffer;
+        final startX = (canvas.area.left + offset.dx).toInt();
+        final startY = (canvas.area.top + offset.dy).toInt();
+        final endX = (startX + size.width).toInt().clamp(0, buffer.width);
+        final endY = (startY + size.height).toInt().clamp(0, buffer.height);
+
+        for (int y = startY.clamp(0, buffer.height); y < endY; y++) {
+          for (int x = startX.clamp(0, buffer.width); x < endX; x++) {
+            final existingCell = buffer.getCell(x, y);
+            final existingBg = existingCell.style.backgroundColor ?? Color.defaultColor;
+            final blendedBg = Color.alphaBlend(rainbowColor, existingBg);
+            buffer.setCell(
+              x,
+              y,
+              existingCell.copyWith(
+                style: existingCell.style.copyWith(backgroundColor: blendedBg),
+              ),
+            );
+          }
+        }
+
+        // Reset the flag after painting
+        _debugWasMarkedNeedsPaint = false;
+      }
     } catch (e, stack) {
       _reportException('paint', e, stack);
       // Try to paint an error indicator

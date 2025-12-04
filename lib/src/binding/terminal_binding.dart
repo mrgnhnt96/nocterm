@@ -825,6 +825,13 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
       }
     }
     terminal.flush();
+
+    // Rotate rainbow debug color for next frame
+    if (debugRepaintRainbowEnabled) {
+      debugCurrentRepaintColor = debugCurrentRepaintColor.withHue(
+        (debugCurrentRepaintColor.hue + 2.0) % 360.0,
+      );
+    }
   }
 
   @override
@@ -832,6 +839,21 @@ class TerminalBinding extends NoctermBinding with SchedulerBinding, HotReloadBin
     super.initializeBinding();
     // Register the terminal drawing as a persistent callback
     addPersistentFrameCallback(_drawFrameCallback);
+  }
+
+  @override
+  void initServiceExtensions() {
+    super.initServiceExtensions();
+
+    registerBoolServiceExtension(
+      name: 'repaintRainbow',
+      getter: () async => debugRepaintRainbowEnabled,
+      setter: (bool value) async {
+        debugRepaintRainbowEnabled = value;
+        // Force a repaint when toggling
+        scheduleFrame();
+      },
+    );
   }
 
   /// Request application shutdown with proper cleanup

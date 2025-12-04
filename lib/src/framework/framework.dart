@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert' show json;
+import 'dart:developer' as developer;
 
 import 'package:meta/meta.dart';
 import 'package:nocterm/src/components/basic.dart';
 import 'package:nocterm/src/rectangle.dart';
 import 'package:nocterm/src/size.dart';
 import 'package:nocterm/src/style.dart';
+import 'package:nocterm/src/rendering/debug.dart';
 
 import 'terminal_canvas.dart';
 
