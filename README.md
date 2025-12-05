@@ -1,4 +1,3 @@
-
 <p align="center">
 <img src="doc/assets/nocterm_banner.png" height="100" alt="Nocterm" />
 </p>
@@ -79,6 +78,16 @@ await testNocterm('counter test', (tester) async {
 ## Documentation
 
 See the [full documentation](https://nocterm.docs.page) for guides on components, state management, testing, and more.
+
+## Contributing
+
+### Git Hooks
+
+We use [hooksman](https://pub.dev/packages/hooksman) to manage git hooks. To install the hooks, run:
+
+```bash
+dart run hooksman
+```
 
 ## License
 
