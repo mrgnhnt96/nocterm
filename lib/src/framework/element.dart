@@ -56,7 +56,7 @@ abstract class Element implements BuildContext {
     }
     final Key? key = component.key;
     if (key is GlobalKey) {
-      owner?._registerGlobalKey(key, this);
+      owner!._registerGlobalKey(key, this);
     }
     _updateInheritance();
   }
