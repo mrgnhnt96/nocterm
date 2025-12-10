@@ -181,7 +181,16 @@ abstract class Element implements BuildContext {
 
   void deactivate() {
     assert(_lifecycleState == _ElementLifecycle.active);
-    // Remove parent assertion - parent can be null when called from _InactiveElements
+    _ensureDeactivated();
+  }
+
+  void _ensureDeactivated() {
+    if (_dependencies case final Set<InheritedElement> dependencies?
+        when dependencies.isNotEmpty) {
+      for (final dependency in dependencies) {
+        dependency.removeDependent(this);
+      }
+    }
     _inheritedElements = null;
     _lifecycleState = _ElementLifecycle.inactive;
   }
