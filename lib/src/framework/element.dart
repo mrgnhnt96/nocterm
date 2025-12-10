@@ -390,8 +390,7 @@ abstract class Element implements BuildContext {
   @override
   InheritedComponent dependOnInheritedElement(InheritedElement ancestor,
       {Object? aspect}) {
-    _dependencies ??= HashSet<InheritedElement>();
-    _dependencies!.add(ancestor);
+    (_dependencies ??= HashSet<InheritedElement>()).add(ancestor);
     ancestor.updateDependencies(this, aspect);
     return ancestor.component;
   }

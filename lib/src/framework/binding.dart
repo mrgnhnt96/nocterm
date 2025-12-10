@@ -190,7 +190,7 @@ class InheritedElement extends BuildableElement {
   }
 
   void updateDependencies(Element dependent, Object? aspect) {
-    _dependents[dependent] = aspect;
+    setDependencies(dependent, null);
   }
 
   void notifyClients(InheritedComponent oldComponent) {
@@ -199,9 +199,16 @@ class InheritedElement extends BuildableElement {
     }
   }
 
+  @protected
   void notifyDependent(
-      InheritedComponent oldComponent, covariant Element dependent) {
+      covariant InheritedComponent oldComponent, covariant Element dependent) {
     dependent.didChangeDependencies();
+  }
+
+  @protected
+  @mustCallSuper
+  void removeDependent(Element dependent) {
+    _dependents.remove(dependent);
   }
 
   @override
