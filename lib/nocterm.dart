@@ -73,11 +73,8 @@ export 'src/utils/nocterm_paths.dart';
 
 // Performance and Debugging
 export 'src/foundation/performance.dart';
+export 'src/foundation/nocterm_error.dart';
 export 'src/rendering/debug.dart';
 
 // Widgets
 export 'src/widgets/nocterm_app.dart';
-
-// Builder components
-export 'src/components/builder.dart';
-export 'src/components/layout_builder.dart';

@@ -151,19 +151,6 @@ class BoxConstraints {
   String toString() {
     return 'BoxConstraints($minWidth..$maxWidth x $minHeight..$maxHeight)';
   }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is BoxConstraints &&
-        other.minWidth == minWidth &&
-        other.maxWidth == maxWidth &&
-        other.minHeight == minHeight &&
-        other.maxHeight == maxHeight;
-  }
-
-  @override
-  int get hashCode => Object.hash(minWidth, maxWidth, minHeight, maxHeight);
 }
 
 /// Position offset
@@ -553,9 +540,16 @@ abstract class RenderObject {
 
   /// Report an exception that occurred during rendering.
   void _reportException(String method, Object exception, StackTrace stack) {
-    // Report to stderr (will be caught by zone)
-    print('Exception in RenderObject.$method: $exception');
-    print('Stack trace: $stack');
+    NoctermError.reportError(NoctermErrorDetails(
+      exception: exception,
+      stack: stack,
+      library: 'nocterm rendering',
+      context: 'during $method()',
+      informationCollector: () => [
+        'RenderObject: $runtimeType',
+        if (_constraints != null) 'Constraints: $_constraints',
+      ],
+    ));
 
     // Store the error details
     _lastError = exception;
