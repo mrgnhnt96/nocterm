@@ -163,50 +163,51 @@ class InheritedElement extends BuildableElement {
   final Map<Element, Object?> _dependents = HashMap<Element, Object?>();
 
   @override
-  void mount(Element? parent, dynamic newSlot) {
-    _updateInheritance();
-    super.mount(parent, newSlot);
-  }
-
-  @override
-  void update(Component newComponent) {
+  void update(covariant Component newComponent) {
     final InheritedComponent oldComponent = component;
     super.update(newComponent);
     if (component.updateShouldNotify(oldComponent)) {
-      notifyClients();
+      notifyClients(oldComponent);
     }
-  }
-
-  void _updateInheritance() {
-    final Map<Type, InheritedElement>? parentInheritedElements =
-        parent?._inheritedElements;
-    if (parentInheritedElements != null) {
-      _inheritedElements =
-          HashMap<Type, InheritedElement>.from(parentInheritedElements);
-    } else {
-      _inheritedElements = HashMap<Type, InheritedElement>();
-    }
-    _inheritedElements![component.runtimeType] = this;
   }
 
   @override
-  void activate() {
-    super.activate();
-    _updateInheritance();
+  void _updateInheritance() {
+    _inheritedElements =
+        (_parent?._inheritedElements ?? const PersistentHashMap.empty())
+            .put(component.runtimeType, this);
+  }
+
+  @protected
+  Object? getDependencies(Element dependent) {
+    return _dependents[dependent];
+  }
+
+  @protected
+  void setDependencies(Element dependent, Object? value) {
+    _dependents[dependent] = value;
   }
 
   void updateDependencies(Element dependent, Object? aspect) {
-    _dependents[dependent] = aspect;
+    setDependencies(dependent, null);
   }
 
-  void notifyClients() {
+  void notifyClients(InheritedComponent oldComponent) {
     for (final Element dependent in _dependents.keys) {
-      notifyDependent(dependent);
+      notifyDependent(oldComponent, dependent);
     }
   }
 
-  void notifyDependent(Element dependent) {
+  @protected
+  void notifyDependent(
+      covariant InheritedComponent oldComponent, covariant Element dependent) {
     dependent.didChangeDependencies();
+  }
+
+  @protected
+  @mustCallSuper
+  void removeDependent(Element dependent) {
+    _dependents.remove(dependent);
   }
 
   @override

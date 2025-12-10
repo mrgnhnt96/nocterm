@@ -169,7 +169,7 @@ class _UncontrolledProviderScopeElement extends InheritedElement {
   }
 
   @override
-  void notifyDependent(Element dependent) {
+  void notifyDependent(InheritedComponent oldComponent, Element dependent) {
     // Called when this InheritedElement changes and needs to notify dependents
     // First, let the dependent's provider dependencies know it's about to rebuild
     final dependencies = _dependents[dependent];
@@ -177,7 +177,7 @@ class _UncontrolledProviderScopeElement extends InheritedElement {
       dependencies.didRebuildDependent();
     }
 
-    super.notifyDependent(dependent);
+    super.notifyDependent(oldComponent, dependent);
   }
 
   /// Remove dependencies for a dependent element
