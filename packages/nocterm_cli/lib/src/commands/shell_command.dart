@@ -2,32 +2,29 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:nocterm/nocterm.dart';
-import 'package:nocterm_cli/src/deps/args.dart';
 import 'package:nocterm_cli/src/deps/fs.dart';
 import 'package:nocterm_cli/src/deps/log.dart';
+import 'package:nocterm_cli/utils/cli_command.dart';
 
 /// A broadcast stream of the stdin stream.
 // ignore: unnecessary_late
 late final Stream<List<int>> _stdinStream = stdin.asBroadcastStream();
 StreamSubscription? _clientSubscription;
 
-const _usage = '''
-Usage: nocterm shell
+class ShellCommand extends CliCommand {
+  ShellCommand();
 
+  @override
+  String get description => '''
 Start a nocterm shell server that nocterm apps can render into. This allows running nocterm apps from IDEs with debugger support.
 
-This allows running nocterm apps from IDEs with debugger support.
-''';
+This allows running nocterm apps from IDEs with debugger support.''';
 
-class ShellCommand {
-  const ShellCommand();
+  @override
+  String get name => 'shell';
 
+  @override
   Future<int> run() async {
-    if (args['help'] case true) {
-      log(_usage);
-      return 0;
-    }
-
     log('Starting nocterm shell server...');
 
     // Create global nocterm directory for this project

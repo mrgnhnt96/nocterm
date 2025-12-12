@@ -2,26 +2,24 @@ import 'dart:io';
 
 import 'package:nocterm_cli/src/deps/args.dart' as cli;
 import 'package:nocterm_cli/src/deps/log.dart';
+import 'package:nocterm_cli/utils/cli_command.dart';
 
-const _usage = '''
-Usage: nocterm run dart <script.dart> [arguments]
+/// Run a dart command with --enable-vm-service automatically added
+class RunCommand extends CliCommand {
+  RunCommand();
 
+  @override
+  String get description => '''
 Run a Dart script with --enable-vm-service automatically added.
 This enables VM service for debugging and profiling.
 
-Example: nocterm run dart lib/main.dart
-''';
+Example: nocterm run dart lib/main.dart''';
 
-/// Run a dart command with --enable-vm-service automatically added
-class RunCommand {
-  const RunCommand();
+  @override
+  String get name => 'run';
 
+  @override
   Future<int> run() async {
-    if (cli.args['help'] case true) {
-      log(_usage);
-      return 0;
-    }
-
     final args = cli.args.rest;
 
     if (args.isEmpty) {

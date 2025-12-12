@@ -10,7 +10,7 @@ import 'package:scoped_deps/scoped_deps.dart';
 
 void main(List<String> arguments) async {
   runScoped(
-    _run,
+    () => _run(arguments),
     values: {
       argsProvider.overrideWith(() => Args.parse(arguments)),
       logProvider,
@@ -19,9 +19,9 @@ void main(List<String> arguments) async {
   );
 }
 
-Future<void> _run() async {
+Future<void> _run(List<String> arguments) async {
   try {
-    exitCode = await Runner().run();
+    exitCode = await Runner().run(arguments);
   } finally {
     restoreTerminal();
   }

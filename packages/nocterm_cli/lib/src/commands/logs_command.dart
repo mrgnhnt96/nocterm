@@ -3,27 +3,23 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:nocterm/nocterm.dart';
-import 'package:nocterm_cli/src/deps/args.dart';
 import 'package:nocterm_cli/src/deps/fs.dart';
-import 'package:nocterm_cli/src/deps/log.dart';
-
-const _usage = '''
-Usage: nocterm logs
-
-Stream logs from a running nocterm app via WebSocket.
-Logs are displayed in real-time. Press Ctrl+C to exit.
-''';
+import 'package:nocterm_cli/utils/cli_command.dart';
 
 /// Run the logs command to stream logs from a running nocterm app
-class LogsCommand {
-  const LogsCommand();
+class LogsCommand extends CliCommand {
+  LogsCommand();
 
+  @override
+  String get description => '''
+Stream logs from a running nocterm app via WebSocket.
+Logs are displayed in real-time. Press Ctrl+C to exit.''';
+
+  @override
+  String get name => 'logs';
+
+  @override
   Future<int> run() async {
-    if (args['help'] case true) {
-      log(_usage);
-      return 0;
-    }
-
     try {
       // Read port from global log_port file
       final portFile = fs.file(getLogPortPath());
